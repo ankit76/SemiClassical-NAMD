@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #SBATCH -o output.log
-#SBATCH -t 1:00:00
+#SBATCH -t 20:00:00
 
 import sys, os
 
@@ -31,7 +31,7 @@ except:
     stype = "_"
 #-------------------------
 from multiprocessing import Pool
-import time 
+import time
 import numpy as np
 
 t0 = time.time()
@@ -40,7 +40,7 @@ trajs = model.parameters.NTraj
 #----------------
 try:
     fold = sys.argv[2]
-    
+
 except:
     fold = "."
 print (f"Folder: {fold}")
@@ -63,10 +63,10 @@ with Pool(procs) as p:
     #------ Arguments for each CPU------------------
     args = []
     for j in range(procs):
-        par = model.parameters() 
+        par = model.parameters()
         par.ID   = j
         par.SEED   = np.random.randint(0,100000000)
-        
+
         #---- methods in model ------
 
         par.dHel = model.dHel
@@ -90,11 +90,11 @@ for i in range(procs):
     for t in range(rho_ensemble[0].shape[-1]):
         rho_sum[:,:,t] += rho_ensemble[i][:,:,t]
 
-try:    
-    PiiFile = open(f"{fold}/{method_[0]}-{method_[1]}-{model_}.txt","w") 
+try:
+    PiiFile = open(f"{fold}/{method_[0]}-{method_[1]}-{model_}.txt","w")
 except:
-    PiiFile = open(f"{fold}/{method_[0]}-{model_}.txt","w") 
- 
+    PiiFile = open(f"{fold}/{method_[0]}-{model_}.txt","w")
+
 NTraj = model.parameters().NTraj
 for t in range(rho_ensemble[0].shape[-1]):
     PiiFile.write(f"{t * model.parameters.nskip * model.parameters.dtN} \t")

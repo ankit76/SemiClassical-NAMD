@@ -1,6 +1,7 @@
-Model                = morse1
+Model                = ciss
 Method               = mfe
 
-System               = htcondor
-Cpus                 = 10
-pylocation           = /home/arkajitmandal/py3.tar.gz
+System               = slurm
+Nodes                = 1
+Cpus                 = 42
+Partition            = defq    

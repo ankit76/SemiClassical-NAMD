@@ -24,37 +24,37 @@ def propagateCi(ci,Vij, dt):
 
 def Force(dat):
 
-    dH = dat.dHij #dHel(R) # Nxnxn Matrix, N = Nuclear DOF, n = NStates 
-    dH0  = dat.dH0 
+    dH = dat.dHij #dHel(R) # Nxnxn Matrix, N = Nuclear DOF, n = NStates
+    dH0  = dat.dH0
 
     ci = dat.ci
 
     F = -dH0 #np.zeros((len(dat.R)))
     for i in range(len(ci)):
         F -= dH[i,i,:]  * (ci[i] * ci[i].conjugate() ).real
-        for j in range(i+1, len(ci)):
-            F -= 2.0 * dH[i,j,:]  * (ci[i].conjugate() * ci[j] ).real
+        #for j in range(i+1, len(ci)):
+        #    F -= 2.0 * dH[i,j,:]  * (ci[i].conjugate() * ci[j] ).real
     return F
 
-def VelVer(dat) : 
+def VelVer(dat) :
     par =  dat.param
     v = dat.P/par.M
-    F1 = dat.F1 
+    F1 = dat.F1
     # electronic wavefunction
     ci = dat.ci * 1.0
-    
+
     EStep = int(par.dtN/par.dtE)
     dtE = par.dtN/EStep
 
     # half electronic evolution
     for t in range(int(np.floor(EStep/2))):
-        ci = propagateCi(ci, dat.Hij, dtE)  
-    ci /= np.sum(ci.conjugate()*ci) 
-    dat.ci = ci * 1.0 
+        ci = propagateCi(ci, dat.Hij, dtE)
+    ci /= np.sum(ci.conjugate()*ci)
+    dat.ci = ci * 1.0
 
     # ======= Nuclear Block ==================================
     dat.R += v * par.dtN + 0.5 * F1 * par.dtN ** 2 / par.M
-    
+
     #------ Do QM ----------------
     dat.Hij  = par.Hel(dat.R)
     dat.dHij = par.dHel(dat.R)
@@ -67,9 +67,9 @@ def VelVer(dat) :
     # ======================================================
     # half electronic evolution
     for t in range(int(np.ceil(EStep/2))):
-        ci = propagateCi(ci, dat.Hij, dtE)  
-    ci /= np.sum(ci.conjugate()*ci)  
-    dat.ci = ci * 1.0 
+        ci = propagateCi(ci, dat.Hij, dtE)
+    ci /= np.sum(ci.conjugate()*ci)
+    dat.ci = ci * 1.0
 
     return dat
 
@@ -98,11 +98,11 @@ def runTraj(parameters):
         pl = 1
     rho_ensemble = np.zeros((NStates,NStates,NSteps//nskip + pl), dtype=complex)
     # Ensemble
-    for itraj in range(NTraj): 
+    for itraj in range(NTraj):
         # Trajectory data
         dat = Bunch(param =  parameters )
         dat.R, dat.P = parameters.initR()
-        
+
         # set propagator
         vv  = VelVer
 
@@ -126,17 +126,17 @@ def runTraj(parameters):
 
     return rho_ensemble
 
-if __name__ == "__main__": 
+if __name__ == "__main__":
     import spinBoson as model
     par =  model.parameters
-    
+
     rho_ensemble = runTraj(par)
-    
+
     NSteps = model.parameters.NSteps
     NTraj = model.parameters.NTraj
     NStates = model.parameters.NStates
 
-    PiiFile = open("Pii.txt","w") 
+    PiiFile = open("Pii.txt","w")
     for t in range(NSteps):
         PiiFile.write(f"{t * model.parameters.nskip} \t")
         for i in range(NStates):

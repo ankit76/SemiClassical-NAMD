@@ -3,9 +3,11 @@ from numpy import array as A
 
 
 class parameters():
-   NSteps = 41350   # int(2*10**6)
-   NTraj = 1
    dtN = 100.0
+   time = 1000
+   ps = 41342
+   NSteps = time * ps // int(dtN)  # int(2*10**6)
+   NTraj = 1
    dtE = dtN/20
    NStates = 5
    M = 1
@@ -15,15 +17,15 @@ class parameters():
    theta = np.pi / 16
    gamma_1 = 0.00001837465
    gamma_2 = gamma_1 / 2
-   j_exc = 4.2629194e-8
+   j_exc = 4.2629194e-6
    ev = 27.211385
-   e_ct1 = -0.1 / ev
-   e_ct2 = -0.25 / ev
    bath = np.loadtxt('bath.txt')
    omega, c_1 = bath[:, 0], bath[:, 1]
    lambda_1 = 0.1
    lambda_2 = 0.2
-   c_2 = (np.sqrt(lambda_2) + np.sqrt(lambda_1)) * c_1 / np.sqrt(lambda_1) 
+   e_ct1 = -0.1 / ev + lambda_1 / ev
+   e_ct2 = -0.35 / ev + (np.sqrt(lambda_1 / ev) + np.sqrt(lambda_2 / ev))**2
+   c_2 = (np.sqrt(lambda_2) + np.sqrt(lambda_1)) * c_1 / np.sqrt(lambda_1)
    ndof = len(c_1)
 
 def Hel(R):
