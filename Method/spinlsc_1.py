@@ -6,6 +6,13 @@ os.environ['JAX_PLATFORM_NAME'] = 'cpu'
 from jax import jit, vmap, lax, numpy as jnp
 from functools import partial
 
+from mpi4py import MPI
+
+comm = MPI.COMM_WORLD
+rank = comm.Get_rank()
+size = comm.Get_size()
+
+
 """
 This is a Focused-spinPLDM code 
 Here sampled mean all combinations 
@@ -122,10 +129,11 @@ def VelVer(dat, par, NESteps) :
 @jit
 def pop(dat):
     NStates = dat['zF'].size
-    rho = 0.5 * (jnp.outer(dat['zF'][:].conjugate(), dat['zF']) - dat['gw'] * np.identity(NStates))
+    rho = 0.5 * (jnp.outer(dat['zF'][:].conjugate(), dat['zF']) - dat['gw'] * jnp.identity(NStates))
     return rho
 
 def runTraj(parameters):
+    np.random.seed(rank)
     #------- Seed --------------------
     #try:
     #    np.random.seed(parameters.SEED)
@@ -162,7 +170,7 @@ def runTraj(parameters):
         # Call function to initialize mapping variables
  
         # various 
-        dat['zF']  = initMapping(NStates, initState) 
+        dat['zF']  = jnp.array(initMapping(NStates, initState))
 
         #----- Initial QM --------
         dat['Hij']  = parameters.Hel(dat['R'])
@@ -179,20 +187,29 @@ def runTraj(parameters):
             #-------------------------------------------------------
             dat = vv(dat, parameters, parameters.NESteps)
 
-    return rho_ensemble
+    # mpi averaging
+    global_rho = None
+    if rank == 0:
+        global_rho = np.zeros((NStates,NStates,NSteps//nskip + pl)) + 0.j
+    comm.Reduce([rho_ensemble, MPI.DOUBLE], [global_rho, MPI.DOUBLE], op=MPI.SUM, root=0)
+    if rank == 0:
+        global_rho /= size
+
+    return global_rho
 
 if __name__ == "__main__": 
     from Model import marcus_1
-    par = marcus_1.parameters(NTraj=10)
+    par = marcus_1.parameters(NTraj=1)
     rho_ensemble = runTraj(par)
     NSteps = par.NSteps
     NTraj = par.NTraj
     NStates = par.NStates
-
-    PiiFile = open("Pii.txt", "w")
-    for t in range(rho_ensemble.shape[-1]):
-        PiiFile.write(f"{t * par.nskip  * par.dtN} \t")
-        for i in range(NStates):
-            PiiFile.write(str(rho_ensemble[i, i, t].real / NTraj) + "\t")
-        PiiFile.write("\n")
-    PiiFile.close()
+    
+    if rank == 0:
+        PiiFile = open("Pii.txt", "w")
+        for t in range(rho_ensemble.shape[-1]):
+            PiiFile.write(f"{t * par.nskip  * par.dtN} \t")
+            for i in range(NStates):
+                PiiFile.write(str(rho_ensemble[i, i, t].real / NTraj) + "\t")
+            PiiFile.write("\n")
+        PiiFile.close()
