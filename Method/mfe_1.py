@@ -1,15 +1,27 @@
 import os
 import numpy as np
 os.environ['JAX_PLATFORM_NAME'] = 'cpu'
-os.environ['JAX_ENABLE_X64'] = 'True'
+os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=1 --xla_cpu_multi_thread_eigen=false                            intra_op_parallelism_threads=1'
+#os.environ['JAX_ENABLE_X64'] = 'True'
 from jax import jit, vmap, lax, numpy as jnp
 from functools import partial
 
+from mpi4py import MPI
+
+comm = MPI.COMM_WORLD
+rank = comm.Get_rank()
+size = comm.Get_size()
+
+if rank == 0:
+    print(f"# Number of cores: {size}\n")
+
 # Initialization of the electronic part
-def initElectronic(Nstates, initState = 0):
+def initElectronic(Nstates, initState = 0, rot=None):
     #global qF, qB, pF, pB, qF0, qB0, pF0, pB0
     c = jnp.zeros((Nstates)) + 0.j
     c = c.at[initState].set(1.0)
+    if rot is not None:
+        c = rot @ c
     return c
 
 @jit
@@ -69,7 +81,12 @@ def VelVer(dat, par, NESteps):
 
 @jit
 def pop(dat):
-    ci =  dat['ci']
+    ci = dat['ci']
+    return jnp.outer(ci.conjugate(),ci)
+
+@jit
+def pop_rot(dat, rot):
+    ci = rot.T.conj() @ dat['ci']
     return jnp.outer(ci.conjugate(),ci)
 
 def runTraj(parameters):
@@ -100,10 +117,15 @@ def runTraj(parameters):
 
         # set propagator
         vv  = VelVer
+        measure = pop
 
         # Call function to initialize mapping variables
-        dat['ci'] = initElectronic(NStates, initState) # np.array([0,1])
-
+        if hasattr(parameters, 'u_rot'):
+            dat['ci'] = initElectronic(NStates, initState, parameters.u_rot)
+            measure = partial(pop_rot, rot=parameters.u_rot)
+        else:
+            dat['ci'] = initElectronic(NStates, initState)
+        
         #----- Initial QM --------
         dat['Hij']  = parameters.Hel(dat['R'])
         dat['dHij'] = parameters.dHel(dat['R'])
@@ -115,28 +137,37 @@ def runTraj(parameters):
         for i in range(NSteps): # One trajectory
             #------- ESTIMATORS-------------------------------------
             if (i % nskip == 0):
-                rho_ensemble[:,:,iskip] += pop(dat)
+                rho_ensemble[:,:,iskip] += measure(dat)
                 iskip += 1
             #-------------------------------------------------------
             dat = vv(dat, parameters, parameters.NESteps)
+    
+    # mpi averaging
+    global_rho = None
+    if rank == 0:
+        global_rho = np.zeros((NStates, NStates, NSteps//nskip + pl)) + 0.j
+    comm.Reduce([rho_ensemble, MPI.DOUBLE], [global_rho, MPI.DOUBLE], op=MPI.SUM, root=0)
+    if rank == 0:
+        global_rho /= size
 
-    return rho_ensemble
+    return global_rho
 
 if __name__ == "__main__":
     #from Model import spinBoson as model
     #par =  model.parameters
-    from Model import marcus_1
-    par = marcus_1.parameters(NTraj=1)
+    from Model import ciss_rot
+    par = ciss_rot.parameters(NTraj=5)
     rho_ensemble = runTraj(par)
     NSteps = par.NSteps
     NTraj = par.NTraj
     NStates = par.NStates
 
-    PiiFile = open("Pii.txt","w")
-    for t in range(rho_ensemble.shape[-1]):
-        PiiFile.write(f"{t * par.nskip  * par.dtN} \t")
-        for i in range(NStates):
-            PiiFile.write(str(rho_ensemble[i,i,t].real / NTraj) + "\t")
-        PiiFile.write("\n")
-    PiiFile.close()
+    if rank == 0:
+        PiiFile = open("Pii.txt","w")
+        for t in range(rho_ensemble.shape[-1]):
+            PiiFile.write(f"{t * par.nskip  * par.dtN} \t")
+            for i in range(NStates):
+                PiiFile.write(str(rho_ensemble[i,i,t].real / NTraj) + "\t")
+            PiiFile.write("\n")
+        PiiFile.close()
 
