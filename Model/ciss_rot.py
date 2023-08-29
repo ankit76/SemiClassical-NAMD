@@ -1,7 +1,7 @@
 import os
 import numpy as np
 os.environ['JAX_PLATFORM_NAME'] = 'cpu'
-os.environ['JAX_ENABLE_X64'] = 'True'
+#os.environ['JAX_ENABLE_X64'] = 'True'
 from jax import jit, vmap, lax, numpy as jnp
 from flax import struct
 from typing import Callable, Any
@@ -39,8 +39,8 @@ def rotate():
     b2 = 0. * b1
     b2[3,3] = 1
     b2[4,4] = 1
-    b1_p = v.conj().T @ b1 @ v
-    b2_p = v.conj().T @ b2 @ v
+    b1_p = v @ b1 @ v.conj().T
+    b2_p = v @ b2 @ v.conj().T
     vi = np.diag(e)
     return vi.real, b1_p.real, b2_p.real, v
 
@@ -76,6 +76,7 @@ class parameters():
     ndof: int = c_1.size
     ham_diag, b_1, b_2, u_rot = rotate()
     dhel_1 = jnp.einsum('k,ij->ijk', c_1, b_1) + jnp.einsum('k,ij->ijk', c_2, b_2)
+    dhel_1_o = jnp.einsum('k,ij->ijk', c_1, u_rot.conj().T @ b_1 @ u_rot) + jnp.einsum('k,ij->ijk', c_2, u_rot.conj().T @ b_2 @ u_rot)
     
     #@partial(jit, static_argnums=(0,))
     @jit
@@ -96,6 +97,10 @@ class parameters():
     def dHel(self, R):
         return self.dhel_1
     
+    @jit
+    def dHel_o(self, R):
+        return self.dhel_1_o    
+
     #@partial(jit, static_argnums=(0,))
     def initR(self):
         R0 = 0.0

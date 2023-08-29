@@ -53,7 +53,7 @@ def initMapping(Nstates, initState = 0, stype = "trinagle", rot=None):
         qF = rot @ qF
         pF = rot @ pF
 
-    return qF, pF, gamma_0
+    return jnp.array(qF.real), jnp.array(pF.real), gamma_0
 
 @jit
 def Umap(qF, pF, VMat, dt):
@@ -72,14 +72,14 @@ def Umap(qF, pF, VMat, dt):
     # Update momenta using output positions (first-order in dt)
     pF -= 0.5 * dt * VMat @ qF  
 
-    return qF, pF 
+    return qF.real, pF.real 
 
 @jit
-def Force(dat):
+def Force(dat, par):
     gamma_0 = dat['gamma_0']
     dH = dat['dHij'] #dHel(R) Nxnxn Matrix, N = Nuclear DOF, n = NStates 
     dH0 = dat['dH0']
-    qF, pF =  dat['qF'] * 1.0, dat['pF'] * 1.0
+    qF, pF = par.u_rot.conj().T @ dat['qF'], par.u_rot.conj().T @ dat['pF'] 
     # F = np.zeros((len(dat.R)))
     #F = -dH0
     #for i in range(len(qF)):
@@ -105,28 +105,30 @@ def VelVer(dat, par, NESteps) : # R, P, qF, qB, pF, pB, dtI, dtE, F1, Hij,M=1): 
     dat, _ = lax.scan(half_elec_evolution, dat, jnp.arange(NESteps))
 
     # ======= Nuclear Block ==================================
-    F1    =  Force(dat) # force with {qF(t+dt/2)} * dH(R(t))
+    F1    =  Force(dat, par) # force with {qF(t+dt/2)} * dH(R(t))
     dat['R'] += v * par.dtN + 0.5 * F1 * par.dtN ** 2 / par.M
     
     #------ Do QM ----------------
     dat['Hij']  = par.Hel(dat['R'])
-    dat['dHij'] = par.dHel(dat['R'])
+    dat['dHij'] = par.dHel_o(dat['R'])
     dat['dH0']  = par.dHel0(dat['R'])
     #-----------------------------
-    F2 = Force(dat) # force with {qF(t+dt/2)} * dH(R(t+ dt))
+    F2 = Force(dat, par) # force with {qF(t+dt/2)} * dH(R(t+ dt))
     v += 0.5 * (F1 + F2) * par.dtN / par.M
 
     dat['P'] = v * par.M
     # =======================================================
     
+    
+
     # half-step mapping
     dat['Hij'] = par.Hel(dat['R']) # do QM
     dat, _ = lax.scan(half_elec_evolution, dat, jnp.arange(NESteps))    
     return dat
 
 @jit
-def popSquare(dat):
-    qF, pF = dat['qF'] * 1.0, dat['pF'] * 1.0 
+def popSquare(dat, par):
+    qF, pF = par.u_rot.conj().T @ dat['qF'], par.u_rot.conj().T @ dat['pF']
     N = qF.size
     eta = 0.5 * ( qF**2 + pF**2 )
     gamma = dat['gamma']
@@ -146,8 +148,8 @@ def popSquare(dat):
     return rho_ij
 
 @jit
-def popTriangle(dat):
-    qF, pF = dat['qF'] * 1.0, dat['pF'] * 1.0 
+def popTriangle(dat, par):
+    qF, pF = par.u_rot.conj().T @ dat['qF'], par.u_rot.conj().T @ dat['pF']
     N = qF.size
     eta = 0.5 * ( qF**2 + pF**2 )
     rho_ij = jnp.outer(qF + 1j * pF, qF - 1j * pF) * 0 # have to recheck coherences
@@ -194,7 +196,7 @@ def runTraj(parameters, stype="triangle"):
         vv  = VelVer
 
         # Call function to initialize mapping variables
-        dat['qF'], dat['pF'], dat['gamma_0'] = initMapping(NStates, initState, stype) 
+        dat['qF'], dat['pF'], dat['gamma_0'] = initMapping(NStates, initState, stype, parameters.u_rot) 
         if stype == "square" or stype == "□":
             dat['gamma'] = (np.sqrt(3.0) - 1.0)/2.0
             pop = popSquare
@@ -203,14 +205,14 @@ def runTraj(parameters, stype="triangle"):
             pop = popTriangle
         #----- Initial QM --------
         dat['Hij']  = parameters.Hel(dat['R'])
-        dat['dHij'] = parameters.dHel(dat['R'])
+        dat['dHij'] = parameters.dHel_o(dat['R'])
         dat['dH0']  = parameters.dHel0(dat['R'])
         #----------------------------
         iskip = 0 # please modify
         for i in range(NSteps): # One trajectory
             #------- ESTIMATORS-------------------------------------
             if (i % nskip == 0):
-                rho_ensemble[:,:,iskip] += pop(dat)
+                rho_ensemble[:,:,iskip] += pop(dat, parameters)
                 iskip += 1
             #-------------------------------------------------------
             dat = vv(dat, parameters, parameters.NESteps)
@@ -226,8 +228,8 @@ def runTraj(parameters, stype="triangle"):
     return global_rho
 
 if __name__ == "__main__": 
-    from Model import marcus_1
-    par = marcus_1.parameters(NTraj=10)
+    from Model import ciss_rot
+    par = ciss_rot.parameters(NTraj=4)
     rho_ensemble = runTraj(par)
     NSteps = par.NSteps
     NTraj = par.NTraj
@@ -237,7 +239,10 @@ if __name__ == "__main__":
         PiiFile = open("Pii.txt", "w")
         for t in range(rho_ensemble.shape[-1]):
             PiiFile.write(f"{t * par.nskip  * par.dtN} \t")
+            norm = 0
             for i in range(NStates):
-                PiiFile.write(str(rho_ensemble[i, i, t].real / NTraj) + "\t")
+                norm += rho_ensemble[i,i,t].real    
+            for i in range(NStates):
+                PiiFile.write(str(rho_ensemble[i, i, t].real / norm) + "\t")
             PiiFile.write("\n")
         PiiFile.close()
