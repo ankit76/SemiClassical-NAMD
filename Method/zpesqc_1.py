@@ -2,6 +2,7 @@ import os
 import random
 import numpy as np
 os.environ['JAX_PLATFORM_NAME'] = 'cpu'
+os.environ['XLA_FLAGS'] = '--xla_force_host_platform_device_count=1 --xla_cpu_multi_thread_eigen=false                            intra_op_parallelism_threads=1'
 #os.environ['JAX_ENABLE_X64'] = 'True'
 from jax import jit, vmap, lax, numpy as jnp
 from functools import partial
@@ -13,8 +14,11 @@ comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 size = comm.Get_size()
 
+if rank == 0:
+    print(f"# Number of cores: {size}\n")
+
 # Initialization of the mapping Variables
-def initMapping(Nstates, initState = 0, stype = "square"):
+def initMapping(Nstates, initState = 0, stype = "trinagle", rot=None):
     qF  = np.zeros((Nstates))
     pF  = np.zeros((Nstates))
     gamma_0  = np.zeros((Nstates)) # Adjusted ZPE
@@ -44,6 +48,10 @@ def initMapping(Nstates, initState = 0, stype = "square"):
 
     for i in range(Nstates):
         gamma_0[i] = eta[i] - 1 * (i == initState)
+    
+    if rot is not None:
+        qF = rot @ qF
+        pF = rot @ pF
 
     return qF, pF, gamma_0
 
