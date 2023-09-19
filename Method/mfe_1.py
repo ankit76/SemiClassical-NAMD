@@ -43,7 +43,7 @@ def Force(dat):
     F = -dH0 - jnp.einsum('iij,i->j', dH, (ci * ci.conjugate()).real)
     return F
 
-@partial(jit, static_argnums=(2,))
+@partial(jit, static_argnums=(1,2,))
 def VelVer(dat, par, NESteps):
     v = dat['P'] / par.M
     F1 = dat['F1']
@@ -56,7 +56,7 @@ def VelVer(dat, par, NESteps):
     def half_elec_evolution(dat, x):
         dat['ci'] = propagateCi(dat['ci'], dat['Hij'], dtE)
         return dat, x
-    
+
     dat, _ = lax.scan(half_elec_evolution, dat, jnp.arange(NESteps))
     dat['ci'] /= jnp.sum(dat['ci'].conjugate()*dat['ci'])
 
@@ -65,10 +65,11 @@ def VelVer(dat, par, NESteps):
 
     #------ Do QM ----------------
     dat['Hij']  = par.Hel(dat['R'])
-    dat['dHij'] = par.dHel(dat['R'])
-    dat['dH0']  = par.dHel0(dat['R'])
+    #dat['dHij'] = par.dHel(dat['R'])
+    #dat['dH0']  = par.dHel0(dat['R'])
     #-----------------------------
-    F2 = Force(dat) # force at t2
+    #F2 = Force(dat) # force at t2
+    F2 = par.Force(dat['ci'], dat['R'])
     v += 0.5 * (F1 + F2) * par.dtN / par.M
     dat['F1'] = F2
     dat['P'] = v * par.M
@@ -125,12 +126,13 @@ def runTraj(parameters):
             measure = partial(pop_rot, rot=parameters.u_rot)
         else:
             dat['ci'] = initElectronic(NStates, initState)
-        
+
         #----- Initial QM --------
         dat['Hij']  = parameters.Hel(dat['R'])
         dat['dHij'] = parameters.dHel(dat['R'])
         dat['dH0']  = parameters.dHel0(dat['R'])
-        dat['F1'] = Force(dat) # Initial Force
+        #dat['F1'] = Force(dat) # Initial Force
+        dat['F1'] = parameters.Force(dat['ci'], dat['R'])
 
         #----------------------------
         iskip = 0 # please modify
@@ -141,7 +143,7 @@ def runTraj(parameters):
                 iskip += 1
             #-------------------------------------------------------
             dat = vv(dat, parameters, parameters.NESteps)
-    
+
     # mpi averaging
     global_rho = None
     if rank == 0:
@@ -155,15 +157,15 @@ def runTraj(parameters):
 if __name__ == "__main__":
     #from Model import spinBoson as model
     #par =  model.parameters
-    from Model import ciss_rot
-    par = ciss_rot.parameters(NTraj=5)
+    from Model import ciss_tb
+    par = ciss_tb.parameters(NTraj=100)
     rho_ensemble = runTraj(par)
     NSteps = par.NSteps
     NTraj = par.NTraj
     NStates = par.NStates
 
     if rank == 0:
-        PiiFile = open("Pii.txt","w")
+        PiiFile = open("Pii_tb.txt","w")
         for t in range(rho_ensemble.shape[-1]):
             PiiFile.write(f"{t * par.nskip  * par.dtN} \t")
             for i in range(NStates):
